@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -138,4 +139,49 @@ code {
   body {
     @apply bg-background text-foreground;
     }
+}
+/* ===== Digital Cards IA — identidade visual (migração React/CRACO) ===== */
+:root {
+  --primary: 243 75% 59%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 226 100% 97%;
+  --accent-foreground: 243 75% 59%;
+  --ring: 243 75% 59%;
+  --radius: 0.65rem;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.font-heading {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+[data-debug-wrapper="true"] {
+  display: contents !important;
+}
+
+/* Botão de ação do mini site público: cor de tema uniforme, hover/foco acessíveis */
+.dc-action {
+  background-color: var(--btn);
+  color: var(--btn-fg);
+  border: 1px solid var(--btn);
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.dc-action:hover {
+  background-color: var(--btn-hover);
+  border-color: var(--btn-hover);
+  transform: translateY(-1px);
+}
+.dc-action:focus-visible {
+  outline: 3px solid var(--btn-fg);
+  outline-offset: 2px;
+}
+.dc-action:active {
+  transform: scale(0.99);
 }
