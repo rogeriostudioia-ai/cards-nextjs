@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { studioExemplo } from "@/data/mockData";
 
-const API = `${process.env.NEXT_PUBLIC_BACKEND_URL}/api`;
+const API = `/api`;
 
 const beneficios = [
   {

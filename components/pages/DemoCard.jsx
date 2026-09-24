@@ -4,7 +4,7 @@ import axios from "axios";
 import { Loader2 } from "lucide-react";
 import CardTemplate from "@/components/CardTemplate";
 
-const API = `${process.env.NEXT_PUBLIC_BACKEND_URL}/api`;
+const API = `/api`;
 
 const DemoCard = () => {
   const [demo, setDemo] = useState(null);

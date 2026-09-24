@@ -81,7 +81,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const API = `${process.env.NEXT_PUBLIC_BACKEND_URL}/api`;
+const API = `/api`;
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOKEN_KEY = "dc_admin_token";
 
@@ -889,7 +889,7 @@ const MediaUpload = ({ label, field, value, valueType, onChange, allowVideo, tes
       fd.append("file", fileOrBlob, filename);
       const { data } = await axios.post(`${API}/media/upload`, fd);
       setUploadedName(data.filename || filename);
-      onChange(`${API}/files/${data.path}`, data.type);
+      onChange(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/files/${data.path}`, data.type);
       toast.success("Arquivo enviado com sucesso.");
     } catch (err) {
       toast.error(formatError(err?.response?.data?.detail, "Falha ao enviar o arquivo."));

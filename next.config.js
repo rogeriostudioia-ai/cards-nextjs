@@ -23,6 +23,17 @@ const nextConfig = {
     maxInactiveAge: 10000,
     pagesBufferLength: 2,
   },
+  async rewrites() {
+    const backend = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
+    if (!backend) return [];
+    return {
+      beforeFiles: [
+        // Same-origin proxy to the external FastAPI backend (avoids browser CORS on
+        // authenticated/POST requests such as admin login, CRUD, uploads).
+        { source: '/api/:path*', destination: `${backend}/api/:path*` },
+      ],
+    };
+  },
   async headers() {
     return [
       {
