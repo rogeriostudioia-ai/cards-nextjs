@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import brandIcon from "@/components/assets/brand-icon.png";
 import axios from "axios";
 import {
   MessageCircle,
@@ -153,7 +154,7 @@ const Landing = () => {
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <a href="/" data-testid="landing-logo" className="flex items-center gap-2 font-heading text-lg font-extrabold tracking-tight">
-            <img src="/brand-icon.png" alt="Digital Cards IA" className="h-8 w-8 object-contain" />
+            <img src={brandIcon.src} alt="Digital Cards IA" className="h-8 w-8 object-contain" />
             Digital Cards<span className="text-indigo-600">.IA</span>
           </a>
           <nav className="hidden items-center gap-8 md:flex">
@@ -384,7 +385,7 @@ const Landing = () => {
       {/* Rodapé */}
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-8 sm:flex-row sm:px-6 lg:px-8">
-          <p className="flex items-center gap-2 font-heading text-sm font-bold"><img src="/brand-icon.png" alt="" className="h-6 w-6 object-contain" />Digital Cards<span className="text-indigo-600">.IA</span></p>
+          <p className="flex items-center gap-2 font-heading text-sm font-bold"><img src={brandIcon.src} alt="" className="h-6 w-6 object-contain" />Digital Cards<span className="text-indigo-600">.IA</span></p>
           <div className="flex flex-col items-center gap-1 sm:items-end">
             <p className="text-xs text-slate-400">© 2026 Digital Cards IA. Todos os direitos reservados.</p>
             <Link
