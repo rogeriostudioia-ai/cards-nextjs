@@ -649,19 +649,25 @@ const QR_TIPOS = [
 ];
 const QR_EMPTY = { nome: "", tipo: "url", targetUrl: "", clienteId: "none", ativo: true };
 const qrTipoLabel = (t) => QR_TIPOS.find((x) => x.v === t)?.l || t;
+const qrPngName = (qr) => `qr-${qr?.codigoInterno || qr?.token}.png`;
+const QrCodeBadge = ({ qr, testId }) =>
+  qr?.codigoInterno ? (
+    <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono text-xs font-semibold text-white" data-testid={testId}>{qr.codigoInterno}</span>
+  ) : (
+    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500" data-testid={testId}>Sem código</span>
+  );
 
 const QrFormDialog = ({ open, editing, clientes, onClose, onSaved }) => {
   const [form, setForm] = useState(QR_EMPTY);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) setForm(editing ? { ...QR_EMPTY, ...editing, clienteId: editing.clienteId || "none" } : QR_EMPTY);
+    if (open) setForm(editing ? { ...QR_EMPTY, ...editing, nome: editing.nome || "", targetUrl: editing.targetUrl || "", clienteId: editing.clienteId || "none" } : QR_EMPTY);
   }, [open, editing]);
   const tipo = QR_TIPOS.find((x) => x.v === form.tipo);
   const pixInvalid = form.tipo === "pix" && form.targetUrl.trim() && !/^https?:\/\//i.test(form.targetUrl.trim());
 
   const save = async () => {
     if (!form.nome.trim()) return toast.error("Informe o nome do QR Code.");
-    if (!form.targetUrl.trim()) return toast.error("Informe o destino do QR Code.");
     if (pixInvalid) return toast.error("Para Pix, informe um link/página Pix (http/https), não a chave Pix.");
     const payload = {
       nome: form.nome,
@@ -693,6 +699,28 @@ const QrFormDialog = ({ open, editing, clientes, onClose, onSaved }) => {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {editing && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Código interno</Label>
+                <Input data-testid="qr-form-codigo" value={editing.codigoInterno || "Sem código"} readOnly disabled className="mt-1 font-mono" />
+              </div>
+              <div>
+                <Label>Token técnico</Label>
+                <Input data-testid="qr-form-token" value={editing.token || ""} readOnly disabled className="mt-1 font-mono" />
+              </div>
+            </div>
+          )}
+          {(form.clienteId === "none" || !form.targetUrl.trim()) && (
+          <div className="flex flex-wrap gap-2" data-testid="qr-form-flags">
+            {form.clienteId === "none" && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid="qr-form-sem-cliente">Sem cliente</span>
+            )}
+            {!form.targetUrl.trim() && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid="qr-form-sem-destino">Sem destino</span>
+            )}
+          </div>
+          )}
           <div>
             <Label>Nome</Label>
             <Input data-testid="qr-form-nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="ex: Placa balcão - Avaliação Google" className="mt-1" />
@@ -709,8 +737,11 @@ const QrFormDialog = ({ open, editing, clientes, onClose, onSaved }) => {
             </Select>
           </div>
           <div>
-            <Label>Destino</Label>
+            <Label>Destino (opcional)</Label>
             <Input data-testid="qr-form-target" value={form.targetUrl} onChange={(e) => setForm({ ...form, targetUrl: e.target.value })} placeholder={tipo?.ph} className="mt-1" />
+            {!form.targetUrl.trim() && (
+              <p className="mt-1 text-xs text-slate-500" data-testid="qr-form-target-hint">Sem destino, o link do QR fica indisponível (404) até você configurar o destino.</p>
+            )}
             {pixInvalid && (
               <p className="mt-1 text-xs text-red-600" data-testid="qr-form-pix-hint">É necessário um link/página Pix (http/https). Chave Pix pura não é aceita.</p>
             )}
@@ -760,7 +791,7 @@ const DynamicQrDialog = ({ qr, onClose }) => {
   const download = () => {
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = `qr-${qr.token}.png`;
+    a.download = qrPngName(qr);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -774,7 +805,7 @@ const DynamicQrDialog = ({ qr, onClose }) => {
     <Dialog open={!!qr} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md" data-testid="dynqr-dialog">
         <DialogHeader>
-          <DialogTitle className="font-heading">QR Code</DialogTitle>
+          <DialogTitle className="font-heading flex items-center gap-2">QR Code <QrCodeBadge qr={qr} testId="dynqr-codigo" /></DialogTitle>
           <DialogDescription data-testid="dynqr-name">{qr?.nome}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col items-center gap-4 py-2">
@@ -805,20 +836,36 @@ const QrCodesView = ({ onLogout }) => {
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const fetchClientes = useCallback(async () => {
+    try {
+      const c = await axios.get(`${API}/clientes`);
+      setClientes(Array.isArray(c.data) ? c.data : []);
+    } catch (e) {
+      if (e?.response?.status === 401) return onLogout();
+    }
+  }, [onLogout]);
+  useEffect(() => { fetchClientes(); }, [fetchClientes]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [q, c] = await Promise.all([axios.get(`${API}/qrcodes`), axios.get(`${API}/clientes`)]);
+      const q = await axios.get(`${API}/qrcodes`, { params: query ? { q: query } : undefined });
       setQrs(Array.isArray(q.data) ? q.data : []);
-      setClientes(Array.isArray(c.data) ? c.data : []);
     } catch (e) {
       if (e?.response?.status === 401) return onLogout();
       toast.error("Não foi possível carregar os QR Codes.");
     } finally {
       setLoading(false);
     }
-  }, [onLogout]);
+  }, [onLogout, query]);
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const clienteNome = (id) => clientes.find((c) => c.id === id)?.nome;
@@ -847,22 +894,29 @@ const QrCodesView = ({ onLogout }) => {
         </div>
         <Button data-testid="qr-new-button" onClick={() => openForm(null)} className="rounded-full bg-indigo-600 hover:bg-indigo-700"><Plus className="mr-2 h-4 w-4" /> Novo QR Code</Button>
       </div>
+      <div className="relative mb-6">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input data-testid="qr-search-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por código (QR-0001), nome ou token" className="bg-white pl-9" />
+      </div>
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
       ) : qrs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400" data-testid="qrcodes-empty">Nenhum QR Code cadastrado.</div>
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400" data-testid="qrcodes-empty">{query ? "Nenhum QR Code encontrado para esta busca." : "Nenhum QR Code cadastrado."}</div>
       ) : (
         <div className="space-y-3">
           {qrs.map((qr) => (
             <div key={qr.id} data-testid={`qr-row-${qr.token}`} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
+                  <QrCodeBadge qr={qr} testId={`qr-codigo-${qr.token}`} />
                   <span className="font-semibold text-slate-900" data-testid={`qr-name-${qr.token}`}>{qr.nome}</span>
                   <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700" data-testid={`qr-tipo-${qr.token}`}>{qrTipoLabel(qr.tipo)}</span>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${qr.ativo ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`} data-testid={`qr-status-${qr.token}`}>{qr.ativo ? "Ativo" : "Inativo"}</span>
+                  {!qr.clienteId && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid={`qr-sem-cliente-${qr.token}`}>Sem cliente</span>}
+                  {!qr.targetUrl && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid={`qr-sem-destino-${qr.token}`}>Sem destino</span>}
                 </div>
                 <p className="mt-1 break-all font-mono text-xs text-indigo-600" data-testid={`qr-link-${qr.token}`}>{QR_PUBLIC_BASE}{qr.token}</p>
-                <p className="mt-1 truncate text-xs text-slate-500" title={qr.targetUrl} data-testid={`qr-target-${qr.token}`}>→ {qr.targetUrl}</p>
+                <p className="mt-1 truncate text-xs text-slate-500" title={qr.targetUrl || ""} data-testid={`qr-target-${qr.token}`}>→ {qr.targetUrl || "Sem destino"}</p>
                 <p className="mt-0.5 text-xs text-slate-400">
                   {qr.clienteId ? `Cliente: ${clienteNome(qr.clienteId) || "removido"} · ` : ""}
                   {qr.createdAt ? `Criado em ${new Date(qr.createdAt).toLocaleDateString("pt-BR")}` : ""}
