@@ -103,6 +103,7 @@ const NAV = [
   { id: "new-client", label: "Novo cliente", icon: UserPlus, testId: "admin-nav-new-client" },
   { id: "leads", label: "Leads", icon: Inbox, testId: "admin-nav-leads" },
   { id: "coupons", label: "Cupons", icon: Ticket, testId: "admin-nav-coupons" },
+  { id: "qrcodes", label: "QR Codes", icon: QrCode, testId: "admin-nav-qrcodes" },
   { id: "demo", label: "Mini site demo", icon: MonitorSmartphone, testId: "admin-nav-demo" },
   { id: "appearance", label: "Aparência", icon: Palette, testId: "admin-nav-appearance" },
   { id: "settings", label: "Configurações", icon: Settings, testId: "admin-nav-settings" },
@@ -631,6 +632,269 @@ const CouponsView = ({ onLogout }) => {
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+/* ---------------- QR Codes dinâmicos ---------------- */
+const QR_PUBLIC_BASE = "https://digitalcardsia.com.br/api/r/";
+const QR_TIPOS = [
+  { v: "google", l: "Google", ph: "https://g.page/r/..." },
+  { v: "whatsapp", l: "WhatsApp", ph: "https://wa.me/5511999999999" },
+  { v: "pix", l: "Pix (link/página)", ph: "https://link-da-pagina-pix..." },
+  { v: "instagram", l: "Instagram", ph: "https://instagram.com/seuperfil" },
+  { v: "facebook", l: "Facebook", ph: "https://facebook.com/suapagina" },
+  { v: "tiktok", l: "TikTok", ph: "https://www.tiktok.com/@seuperfil" },
+  { v: "url", l: "URL", ph: "https://..." },
+];
+const QR_EMPTY = { nome: "", tipo: "url", targetUrl: "", clienteId: "none", ativo: true };
+const qrTipoLabel = (t) => QR_TIPOS.find((x) => x.v === t)?.l || t;
+
+const QrFormDialog = ({ open, editing, clientes, onClose, onSaved }) => {
+  const [form, setForm] = useState(QR_EMPTY);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open) setForm(editing ? { ...QR_EMPTY, ...editing, clienteId: editing.clienteId || "none" } : QR_EMPTY);
+  }, [open, editing]);
+  const tipo = QR_TIPOS.find((x) => x.v === form.tipo);
+  const pixInvalid = form.tipo === "pix" && form.targetUrl.trim() && !/^https?:\/\//i.test(form.targetUrl.trim());
+
+  const save = async () => {
+    if (!form.nome.trim()) return toast.error("Informe o nome do QR Code.");
+    if (!form.targetUrl.trim()) return toast.error("Informe o destino do QR Code.");
+    if (pixInvalid) return toast.error("Para Pix, informe um link/página Pix (http/https), não a chave Pix.");
+    const payload = {
+      nome: form.nome,
+      tipo: form.tipo,
+      targetUrl: form.targetUrl.trim(),
+      ativo: form.ativo,
+      clienteId: form.clienteId === "none" ? null : form.clienteId,
+    };
+    setSaving(true);
+    try {
+      if (editing) await axios.put(`${API}/qrcodes/${editing.id}`, payload);
+      else await axios.post(`${API}/qrcodes`, payload);
+      toast.success(editing ? "QR Code atualizado." : "QR Code criado.");
+      onSaved();
+    } catch (err) {
+      toast.error(formatError(err?.response?.data?.detail, "Não foi possível salvar o QR Code."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg" data-testid="qr-form-dialog">
+        <DialogHeader>
+          <DialogTitle className="font-heading">{editing ? "Editar QR Code" : "Novo QR Code"}</DialogTitle>
+          <DialogDescription>
+            {editing ? "O link impresso continua o mesmo; apenas o destino muda." : "Gere um link permanente para placas e displays."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>Nome</Label>
+            <Input data-testid="qr-form-nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="ex: Placa balcão - Avaliação Google" className="mt-1" />
+          </div>
+          <div>
+            <Label>Tipo</Label>
+            <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v })}>
+              <SelectTrigger data-testid="qr-form-tipo" className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {QR_TIPOS.map((t) => (
+                  <SelectItem key={t.v} value={t.v} data-testid={`qr-form-tipo-${t.v}`}>{t.l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Destino</Label>
+            <Input data-testid="qr-form-target" value={form.targetUrl} onChange={(e) => setForm({ ...form, targetUrl: e.target.value })} placeholder={tipo?.ph} className="mt-1" />
+            {pixInvalid && (
+              <p className="mt-1 text-xs text-red-600" data-testid="qr-form-pix-hint">É necessário um link/página Pix (http/https). Chave Pix pura não é aceita.</p>
+            )}
+          </div>
+          <div>
+            <Label>Cliente (opcional)</Label>
+            <Select value={form.clienteId} onValueChange={(v) => setForm({ ...form, clienteId: v })}>
+              <SelectTrigger data-testid="qr-form-cliente" className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {clientes.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={form.ativo ? "1" : "0"} onValueChange={(v) => setForm({ ...form, ativo: v === "1" })}>
+              <SelectTrigger data-testid="qr-form-ativo" className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Ativo</SelectItem>
+                <SelectItem value="0">Inativo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={onClose} data-testid="qr-form-cancel">Cancelar</Button>
+          <Button onClick={save} disabled={saving} data-testid="qr-form-save" className="rounded-full bg-indigo-600 hover:bg-indigo-700">
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const DynamicQrDialog = ({ qr, onClose }) => {
+  const [dataUrl, setDataUrl] = useState("");
+  const link = qr ? `${QR_PUBLIC_BASE}${qr.token}` : "";
+  useEffect(() => {
+    setDataUrl("");
+    if (!qr) return;
+    QRCodeLib.toDataURL(link, { width: 1024, margin: 2, errorCorrectionLevel: "M", color: { dark: "#0F172A", light: "#FFFFFF" } })
+      .then(setDataUrl)
+      .catch(() => toast.error("Não foi possível gerar o QR Code."));
+  }, [qr, link]);
+  const download = () => {
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `qr-${qr.token}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast.success("Download iniciado.");
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); toast.success("Link permanente copiado."); }
+    catch { toast.error("Não foi possível copiar o link."); }
+  };
+  return (
+    <Dialog open={!!qr} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md" data-testid="dynqr-dialog">
+        <DialogHeader>
+          <DialogTitle className="font-heading">QR Code</DialogTitle>
+          <DialogDescription data-testid="dynqr-name">{qr?.nome}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-4 py-2">
+          <div className="flex h-60 w-60 items-center justify-center rounded-xl border border-slate-200 bg-white p-2">
+            {dataUrl ? (
+              <img src={dataUrl} alt={`QR Code ${qr?.nome || ""}`} className="h-56 w-56" data-testid="dynqr-image" />
+            ) : (
+              <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
+            )}
+          </div>
+          <p className="max-w-full break-all text-center font-mono text-sm text-indigo-600" data-testid="dynqr-url">{link}</p>
+        </div>
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-center">
+          <Button data-testid="dynqr-download" onClick={download} disabled={!dataUrl} className="rounded-full bg-indigo-600 hover:bg-indigo-700"><Download className="mr-2 h-4 w-4" /> Baixar PNG</Button>
+          <Button data-testid="dynqr-copy" onClick={copy} variant="outline" className="rounded-full"><Copy className="mr-2 h-4 w-4" /> Copiar link</Button>
+          <Button data-testid="dynqr-close" onClick={onClose} variant="ghost" className="rounded-full">Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const QrCodesView = ({ onLogout }) => {
+  const [qrs, setQrs] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const [toDelete, setToDelete] = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [q, c] = await Promise.all([axios.get(`${API}/qrcodes`), axios.get(`${API}/clientes`)]);
+      setQrs(Array.isArray(q.data) ? q.data : []);
+      setClientes(Array.isArray(c.data) ? c.data : []);
+    } catch (e) {
+      if (e?.response?.status === 401) return onLogout();
+      toast.error("Não foi possível carregar os QR Codes.");
+    } finally {
+      setLoading(false);
+    }
+  }, [onLogout]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const clienteNome = (id) => clientes.find((c) => c.id === id)?.nome;
+  const openForm = (qr) => { setEditing(qr); setFormOpen(true); };
+  const toggle = async (qr) => {
+    try {
+      const { data } = await axios.put(`${API}/qrcodes/${qr.id}`, { ativo: !qr.ativo });
+      setQrs((l) => l.map((x) => (x.id === qr.id ? { ...x, ...(data || {}), ativo: data?.ativo ?? !qr.ativo } : x)));
+    } catch { toast.error("Não foi possível atualizar o QR Code."); }
+  };
+  const confirmDelete = async () => {
+    try {
+      await axios.delete(`${API}/qrcodes/${toDelete.id}`);
+      setQrs((l) => l.filter((x) => x.id !== toDelete.id));
+      toast.success("QR Code removido.");
+    } catch { toast.error("Não foi possível remover o QR Code."); }
+    setToDelete(null);
+  };
+
+  return (
+    <div data-testid="qrcodes-view">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900">QR Codes</h1>
+          <p className="mt-1 text-sm text-slate-500">QR Codes dinâmicos para placas e displays: o link impresso é permanente e o destino pode ser alterado a qualquer momento.</p>
+        </div>
+        <Button data-testid="qr-new-button" onClick={() => openForm(null)} className="rounded-full bg-indigo-600 hover:bg-indigo-700"><Plus className="mr-2 h-4 w-4" /> Novo QR Code</Button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
+      ) : qrs.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400" data-testid="qrcodes-empty">Nenhum QR Code cadastrado.</div>
+      ) : (
+        <div className="space-y-3">
+          {qrs.map((qr) => (
+            <div key={qr.id} data-testid={`qr-row-${qr.token}`} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-slate-900" data-testid={`qr-name-${qr.token}`}>{qr.nome}</span>
+                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700" data-testid={`qr-tipo-${qr.token}`}>{qrTipoLabel(qr.tipo)}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${qr.ativo ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`} data-testid={`qr-status-${qr.token}`}>{qr.ativo ? "Ativo" : "Inativo"}</span>
+                </div>
+                <p className="mt-1 break-all font-mono text-xs text-indigo-600" data-testid={`qr-link-${qr.token}`}>{QR_PUBLIC_BASE}{qr.token}</p>
+                <p className="mt-1 truncate text-xs text-slate-500" title={qr.targetUrl} data-testid={`qr-target-${qr.token}`}>→ {qr.targetUrl}</p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {qr.clienteId ? `Cliente: ${clienteNome(qr.clienteId) || "removido"} · ` : ""}
+                  {qr.createdAt ? `Criado em ${new Date(qr.createdAt).toLocaleDateString("pt-BR")}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" className="rounded-full" data-testid={`qr-view-${qr.token}`} onClick={() => setViewing(qr)}><QrCode className="mr-1.5 h-4 w-4" /> Ver QR</Button>
+                <Button size="sm" variant="outline" className="rounded-full" data-testid={`qr-toggle-${qr.token}`} onClick={() => toggle(qr)}>{qr.ativo ? "Desativar" : "Ativar"}</Button>
+                <Button size="icon" variant="ghost" className="h-9 w-9" data-testid={`qr-edit-${qr.token}`} onClick={() => openForm(qr)} aria-label="Editar QR Code"><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" className="h-9 w-9 text-red-500 hover:bg-red-50 hover:text-red-600" data-testid={`qr-delete-${qr.token}`} onClick={() => setToDelete(qr)} aria-label="Excluir QR Code"><Trash2 className="h-4 w-4" /></Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <QrFormDialog open={formOpen} editing={editing} clientes={clientes} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); fetchAll(); }} />
+      <DynamicQrDialog qr={viewing} onClose={() => setViewing(null)} />
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
+        <AlertDialogContent data-testid="qr-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir QR Code?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Placas e impressos com o QR Code <strong>{toDelete?.nome}</strong> deixarão de funcionar. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="qr-delete-cancel">Cancelar</AlertDialogCancel>
+            <AlertDialogAction data-testid="qr-delete-confirm" onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
@@ -1231,6 +1495,7 @@ const Dashboard = ({ user, onLogout }) => {
         )}
         {active === "leads" && <LeadsView onLogout={onLogout} />}
         {active === "coupons" && <CouponsView onLogout={onLogout} />}
+        {active === "qrcodes" && <QrCodesView onLogout={onLogout} />}
         {active === "demo" && <NewClientView key="demo" mode="demo" onSaved={() => {}} onCancel={() => go("overview")} />}
         {active === "appearance" && <PlaceholderView testId="appearance-view" icon={Palette} title="Aparência" description="Temas e estilos globais dos cartões." />}
         {active === "settings" && <SecurityView onLogout={onLogout} />}
