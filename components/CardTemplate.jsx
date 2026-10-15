@@ -13,6 +13,11 @@ import {
   Volume2,
   VolumeX,
   Link as LinkIcon2,
+  Mail,
+  FileText,
+  Wallet,
+  Copy,
+  Check,
 } from "lucide-react";
 import { isDark, readableOn, withAlpha, shade, blendOver } from "@/lib/themeContrast";
 
@@ -22,6 +27,49 @@ const sanitizeUrl = (url) => {
   if (/^(javascript:|data:|vbscript:)/i.test(u)) return "#";
   if (/^(https?:|tel:|mailto:)/i.test(u)) return u;
   return `https://${u}`;
+};
+
+// Tipo do botão personalizado detectado pelo link/rótulo (sem campo novo no backend)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const customKind = (b) => {
+  const url = (b.url || "").trim();
+  const label = (b.label || "").toLowerCase();
+  if (/^mailto:/i.test(url) || EMAIL_RE.test(url)) return "email";
+  if (/pix/i.test(label)) return "pix";
+  if (/\.pdf(\?|#|$)/i.test(url) || /cat[aá]logo/.test(label)) return "catalogo";
+  return "link";
+};
+const KIND_ICON = { email: Mail, pix: Wallet, catalogo: FileText, link: LinkIcon2 };
+const emailOf = (url) => (url || "").trim().replace(/^mailto:/i, "").split("?")[0];
+
+const CopyEmailButton = ({ email, btn, btnFg, btnHover, testId }) => {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(email);
+    } catch {
+      const t = document.createElement("textarea");
+      t.value = email; document.body.appendChild(t); t.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(t);
+    }
+    setDone(true);
+    setTimeout(() => setDone(false), 1800);
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      data-testid={testId}
+      aria-label={`Copiar e-mail ${email}`}
+      title="Copiar e-mail"
+      className="dc-action flex w-[72px] flex-shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl text-[11px] font-semibold"
+      style={{ "--btn": btn, "--btn-fg": btnFg, "--btn-hover": btnHover, color: btnFg }}
+    >
+      {done ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
+      {done ? "Copiado" : "Copiar"}
+    </button>
+  );
 };
 
 const DEFAULT_COVER =
@@ -218,16 +266,27 @@ const CardTemplate = ({ data }) => {
             ))}
             {customButtons.map((b, i) => {
               const t = btnTheme(b.cor || corBotoes);
+              const kind = customKind(b);
+              const theme = { btn: t.bg, btnFg: t.fg, btnHover: t.hover };
+              if (kind === "email") {
+                const email = emailOf(b.url);
+                return (
+                  <div key={`custom-${i}`} className="flex gap-2" data-testid={`card-email-row-${i}`}>
+                    <div className="min-w-0 flex-1">
+                      <ActionButton icon={Mail} label={b.label} href={`mailto:${email}`} testId={`card-custom-button-${i}`} {...theme} />
+                    </div>
+                    <CopyEmailButton email={email} testId={`card-email-copy-${i}`} {...theme} />
+                  </div>
+                );
+              }
               return (
                 <ActionButton
                   key={`custom-${i}`}
-                  icon={LinkIcon2}
+                  icon={KIND_ICON[kind]}
                   label={b.label}
                   href={sanitizeUrl(b.url)}
                   testId={`card-custom-button-${i}`}
-                  btn={t.bg}
-                  btnFg={t.fg}
-                  btnHover={t.hover}
+                  {...theme}
                 />
               );
             })}

@@ -420,10 +420,25 @@ const ServicosEditor = ({ servicos, onChange }) => {
   );
 };
 
+const BOTAO_PRESETS = [
+  { id: "pix", label: "Pagar com Pix", btn: "+ Pix" },
+  { id: "email", label: "E-mail", btn: "+ E-mail" },
+  { id: "catalogo", label: "Ver catálogo (PDF)", btn: "+ Catálogo PDF" },
+];
+const botaoHint = (b) => {
+  const l = (b.label || "").toLowerCase();
+  const u = (b.url || "").trim();
+  if (/^mailto:/i.test(u) || u.includes("@") || /e-?mail/.test(l)) return { ph: "seuemail@empresa.com", tip: "Mostra o botão de enviar e-mail e a opção de copiar o endereço." };
+  if (/pix/.test(l)) return { ph: "https://link-de-pagamento-pix...", tip: "Cole o link de pagamento Pix do seu banco ou maquininha (http/https). Não use a chave Pix pura." };
+  if (/cat[aá]logo/.test(l) || /\.pdf/i.test(u)) return { ph: "https://drive.google.com/... (link do PDF)", tip: "Cole o link público do PDF (Google Drive, Dropbox, etc.)." };
+  return { ph: "https://...", tip: "" };
+};
+
 const BotoesEditor = ({ botoes, onChange }) => {
   const list = botoes || [];
   const update = (i, key, val) => onChange(list.map((b, idx) => (idx === i ? { ...b, [key]: val } : b)));
   const add = () => onChange([...list, { label: "", url: "", cor: "#6366F1" }]);
+  const addPreset = (p) => onChange([...list, { label: p.label, url: "", cor: "#6366F1" }]);
   const remove = (i) => onChange(list.filter((_, idx) => idx !== i));
   const move = (i, dir) => {
     const j = i + dir;
@@ -441,8 +456,9 @@ const BotoesEditor = ({ botoes, onChange }) => {
         <div key={i} data-testid={`botao-row-${i}`} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input data-testid={`botao-label-${i}`} value={b.label || ""} onChange={(e) => update(i, "label", e.target.value)} placeholder="Texto do botão (ex.: Cardápio)" className="flex-1 bg-white" />
-            <Input data-testid={`botao-url-${i}`} value={b.url || ""} onChange={(e) => update(i, "url", e.target.value)} placeholder="https://..." className="flex-1 bg-white" />
+            <Input data-testid={`botao-url-${i}`} value={b.url || ""} onChange={(e) => update(i, "url", e.target.value)} placeholder={botaoHint(b).ph} className="flex-1 bg-white" />
           </div>
+          {botaoHint(b).tip && <p className="text-xs text-slate-500" data-testid={`botao-hint-${i}`}>{botaoHint(b).tip}</p>}
           <div className="flex items-center gap-3">
             <input type="color" data-testid={`botao-cor-${i}`} value={b.cor || "#6366F1"} onChange={(e) => update(i, "cor", e.target.value)} className="h-9 w-12 cursor-pointer rounded-lg border border-slate-200 bg-white p-1" />
             <span className="text-xs text-slate-500">Cor de destaque</span>
@@ -454,7 +470,12 @@ const BotoesEditor = ({ botoes, onChange }) => {
           </div>
         </div>
       ))}
-      <Button type="button" variant="outline" className="rounded-full" data-testid="botoes-add-button" onClick={add}><Plus className="mr-2 h-4 w-4" /> Adicionar botão</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" className="rounded-full" data-testid="botoes-add-button" onClick={add}><Plus className="mr-2 h-4 w-4" /> Adicionar botão</Button>
+        {BOTAO_PRESETS.map((p) => (
+          <Button key={p.id} type="button" variant="outline" className="rounded-full" data-testid={`botoes-add-${p.id}`} onClick={() => addPreset(p)}>{p.btn}</Button>
+        ))}
+      </div>
     </div>
   );
 };
@@ -784,8 +805,34 @@ const DynamicQrDialog = ({ qr, onClose }) => {
   useEffect(() => {
     setDataUrl("");
     if (!qr) return;
-    QRCodeLib.toDataURL(link, { width: 1024, margin: 2, errorCorrectionLevel: "M", color: { dark: "#0F172A", light: "#FFFFFF" } })
-      .then(setDataUrl)
+    const code = qr.codigoInterno;
+    const opts = { width: 1024, margin: 2, errorCorrectionLevel: "M", color: { dark: "#0F172A", light: "#FFFFFF" } };
+    if (!code) {
+      QRCodeLib.toDataURL(link, opts)
+        .then(setDataUrl)
+        .catch(() => toast.error("Não foi possível gerar o QR Code."));
+      return;
+    }
+    // QR + código interno impresso abaixo (identificação da placa física)
+    const qrCanvas = document.createElement("canvas");
+    QRCodeLib.toCanvas(qrCanvas, link, opts)
+      .then(() => {
+        const size = qrCanvas.width;
+        const band = Math.round(size * 0.17);
+        const out = document.createElement("canvas");
+        out.width = size;
+        out.height = size + band;
+        const ctx = out.getContext("2d");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(qrCanvas, 0, 0);
+        ctx.fillStyle = "#0F172A";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `bold ${Math.round(size * 0.1)}px "Courier New", ui-monospace, monospace`;
+        ctx.fillText(code, size / 2, size + band * 0.4);
+        setDataUrl(out.toDataURL("image/png"));
+      })
       .catch(() => toast.error("Não foi possível gerar o QR Code."));
   }, [qr, link]);
   const download = () => {
@@ -811,7 +858,7 @@ const DynamicQrDialog = ({ qr, onClose }) => {
         <div className="flex flex-col items-center gap-4 py-2">
           <div className="flex h-60 w-60 items-center justify-center rounded-xl border border-slate-200 bg-white p-2">
             {dataUrl ? (
-              <img src={dataUrl} alt={`QR Code ${qr?.nome || ""}`} className="h-56 w-56" data-testid="dynqr-image" />
+              <img src={dataUrl} alt={`QR Code ${qr?.nome || ""}`} className="h-56 w-auto max-w-full object-contain" data-testid="dynqr-image" />
             ) : (
               <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
             )}
