@@ -18,7 +18,10 @@ import {
   Wallet,
   Copy,
   Check,
+  Wifi,
+  ChevronDown,
 } from "lucide-react";
+import { isSpecialBotao, splitSpecial } from "@/lib/specialButtons";
 import { isDark, readableOn, withAlpha, shade, blendOver } from "@/lib/themeContrast";
 
 const sanitizeUrl = (url) => {
@@ -35,11 +38,10 @@ const customKind = (b) => {
   const url = (b.url || "").trim();
   const label = (b.label || "").toLowerCase();
   if (/^mailto:/i.test(url) || EMAIL_RE.test(url)) return "email";
-  if (/pix/i.test(label)) return "pix";
   if (/\.pdf(\?|#|$)/i.test(url) || /cat[aá]logo/.test(label)) return "catalogo";
   return "link";
 };
-const KIND_ICON = { email: Mail, pix: Wallet, catalogo: FileText, link: LinkIcon2 };
+const KIND_ICON = { email: Mail, catalogo: FileText, link: LinkIcon2 };
 const emailOf = (url) => (url || "").trim().replace(/^mailto:/i, "").split("?")[0];
 
 const CopyEmailButton = ({ email, btn, btnFg, btnHover, testId }) => {
@@ -119,6 +121,69 @@ const ActionButton = ({ icon: Icon, label, href, testId, btn, btnFg, btnHover })
   </a>
 );
 
+const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const t = document.createElement("textarea");
+    t.value = text;
+    t.setAttribute("readonly", "");
+    t.style.position = "fixed";
+    t.style.opacity = "0";
+    document.body.appendChild(t);
+    t.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    document.body.removeChild(t);
+    return ok;
+  }
+};
+
+/** Botão no estilo padrão que abre uma área compacta (sem link externo). */
+const RevealButton = ({ icon: Icon, label, testId, btn, btnFg, btnHover, open, onToggle }) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    aria-expanded={open}
+    data-testid={testId}
+    className="dc-action group flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left"
+    style={{ "--btn": btn, "--btn-fg": btnFg, "--btn-hover": btnHover }}
+  >
+    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: withAlpha(btnFg, 0.18), color: btnFg }}>
+      <Icon className="h-5 w-5" strokeWidth={2} />
+    </span>
+    <span className="font-semibold" style={{ color: btnFg }}>{label}</span>
+    <ChevronDown className={`ml-auto h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} style={{ color: btnFg }} />
+  </button>
+);
+
+const CopyRow = ({ title, value, copyLabel, doneLabel, testId, theme, fg, fgMuted, surfaceBorder, mono }) => {
+  const [done, setDone] = useState(false);
+  const run = async () => {
+    const ok = await copyText(value);
+    if (!ok) return;
+    setDone(true);
+    setTimeout(() => setDone(false), 2000);
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{ color: fgMuted }}>{title}</p>
+      <p className={`select-all whitespace-pre-line break-all rounded-xl border px-3 py-2.5 text-sm ${mono ? "font-mono" : "font-medium"}`} style={{ color: fg, borderColor: surfaceBorder }} data-testid={`${testId}-value`}>{value}</p>
+      <button
+        type="button"
+        onClick={run}
+        data-testid={testId}
+        className="dc-action flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold"
+        style={{ "--btn": theme.bg, "--btn-fg": theme.fg, "--btn-hover": theme.hover, color: theme.fg }}
+      >
+        {done ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        <span data-testid={`${testId}-label`}>{done ? doneLabel : copyLabel}</span>
+      </button>
+    </div>
+  );
+};
+
 /**
  * Template visual compartilhado do cartão digital.
  */
@@ -170,8 +235,15 @@ const CardTemplate = ({ data }) => {
   ].filter(Boolean);
 
   const customButtons = [...(c.botoesPersonalizados || [])]
-    .filter((b) => b && b.label && b.url)
+    .filter((b) => b && b.label && b.url && !isSpecialBotao(b))
     .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+
+  const special = splitSpecial(c.botoesPersonalizados);
+  const pixChave = (special.pixChave || "").trim();
+  const wifiOk = Boolean(special.wifiSsid.trim()) && Boolean(special.wifiSenha);
+  const [openPanel, setOpenPanel] = useState(null);
+  const togglePanel = (id) => setOpenPanel((p) => (p === id ? null : id));
+  const panelProps = { theme: std, fg, fgMuted, surfaceBorder };
 
   const toggleMute = () => {
     const v = videoRef.current;
@@ -259,7 +331,7 @@ const CardTemplate = ({ data }) => {
         </div>
 
         {/* Botões */}
-        {(buttons.length > 0 || customButtons.length > 0) && (
+        {(buttons.length > 0 || customButtons.length > 0 || pixChave || wifiOk) && (
           <div className="mt-6 space-y-3 px-6">
             {buttons.map((b) => (
               <ActionButton key={b.testId} {...b} btn={std.bg} btnFg={std.fg} btnHover={std.hover} />
@@ -290,6 +362,28 @@ const CardTemplate = ({ data }) => {
                 />
               );
             })}
+            {pixChave && (
+              <div data-testid="card-pix-block">
+                <RevealButton icon={Wallet} label="Chave Pix" testId="card-pix-button" btn={std.bg} btnFg={std.fg} btnHover={std.hover} open={openPanel === "pix"} onToggle={() => togglePanel("pix")} />
+                {openPanel === "pix" && (
+                  <div className="mt-2 rounded-2xl border p-4" style={{ backgroundColor: surfaceBg, borderColor: surfaceBorder }} data-testid="card-pix-panel">
+                    <CopyRow title="Chave Pix" value={pixChave} copyLabel="Copiar chave Pix" doneLabel="Chave Pix copiada!" testId="card-pix-copy" mono {...panelProps} />
+                  </div>
+                )}
+              </div>
+            )}
+            {wifiOk && (
+              <div data-testid="card-wifi-block">
+                <RevealButton icon={Wifi} label="Wi-Fi" testId="card-wifi-button" btn={std.bg} btnFg={std.fg} btnHover={std.hover} open={openPanel === "wifi"} onToggle={() => togglePanel("wifi")} />
+                {openPanel === "wifi" && (
+                  <div className="mt-2 space-y-4 rounded-2xl border p-4" style={{ backgroundColor: surfaceBg, borderColor: surfaceBorder }} data-testid="card-wifi-panel">
+                    <CopyRow title="Nome da rede" value={special.wifiSsid} copyLabel="Copiar nome da rede" doneLabel="Nome da rede copiado!" testId="card-wifi-copy-ssid" {...panelProps} />
+                    <CopyRow title="Senha do Wi-Fi" value={special.wifiSenha} copyLabel="Copiar senha" doneLabel="Senha copiada!" testId="card-wifi-copy-senha" mono {...panelProps} />
+                    <CopyRow title="Dados completos" value={`Rede: ${special.wifiSsid}\nSenha: ${special.wifiSenha}`} copyLabel="Copiar dados do Wi-Fi" doneLabel="Dados do Wi-Fi copiados!" testId="card-wifi-copy-all" {...panelProps} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

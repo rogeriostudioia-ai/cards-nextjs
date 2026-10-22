@@ -37,7 +37,13 @@ import {
   Inbox,
   MonitorSmartphone,
   Ticket,
+  Eye,
+  EyeOff,
+  Wifi,
+  Wallet,
+  AlertTriangle,
 } from "lucide-react";
+import { splitSpecial, joinSpecial } from "@/lib/specialButtons";
 import QRCodeLib from "qrcode";
 import { toast } from "sonner";
 import ImageCropDialog from "@/components/ImageCropDialog";
@@ -421,7 +427,6 @@ const ServicosEditor = ({ servicos, onChange }) => {
 };
 
 const BOTAO_PRESETS = [
-  { id: "pix", label: "Pagar com Pix", btn: "+ Pix" },
   { id: "email", label: "E-mail", btn: "+ E-mail" },
   { id: "catalogo", label: "Ver catálogo (PDF)", btn: "+ Catálogo PDF" },
 ];
@@ -429,7 +434,6 @@ const botaoHint = (b) => {
   const l = (b.label || "").toLowerCase();
   const u = (b.url || "").trim();
   if (/^mailto:/i.test(u) || u.includes("@") || /e-?mail/.test(l)) return { ph: "seuemail@empresa.com", tip: "Mostra o botão de enviar e-mail e a opção de copiar o endereço." };
-  if (/pix/.test(l)) return { ph: "https://link-de-pagamento-pix...", tip: "Cole o link de pagamento Pix do seu banco ou maquininha (http/https). Não use a chave Pix pura." };
   if (/cat[aá]logo/.test(l) || /\.pdf/i.test(u)) return { ph: "https://drive.google.com/... (link do PDF)", tip: "Cole o link público do PDF (Google Drive, Dropbox, etc.)." };
   return { ph: "https://...", tip: "" };
 };
@@ -1019,14 +1023,22 @@ const NewClientView = ({ editing, onSaved, onCancel, mode = "client" }) => {
   const isDemo = mode === "demo";
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [showWifiSenha, setShowWifiSenha] = useState(false);
+
+  // Pix/Wi-Fi ficam em botoesPersonalizados (entradas especiais); no form viram campos próprios.
+  const fromData = (d) => {
+    const base = { ...EMPTY_FORM, ...(d || {}) };
+    const { regulares, pixChave, wifiSsid, wifiSenha } = splitSpecial(base.botoesPersonalizados);
+    return { ...base, botoesPersonalizados: regulares, pixChave, wifiSsid, wifiSenha };
+  };
 
   useEffect(() => {
     if (isDemo) {
-      axios.get(`${API}/public/demo`).then((r) => setForm({ ...EMPTY_FORM, ...r.data })).catch(() => setForm(EMPTY_FORM));
+      axios.get(`${API}/public/demo`).then((r) => setForm(fromData(r.data))).catch(() => setForm(fromData(null)));
     } else if (editing) {
-      setForm({ ...EMPTY_FORM, ...editing });
+      setForm(fromData(editing));
     } else {
-      setForm(EMPTY_FORM);
+      setForm(fromData(null));
     }
   }, [editing, isDemo]);
 
@@ -1038,7 +1050,8 @@ const NewClientView = ({ editing, onSaved, onCancel, mode = "client" }) => {
     if (!isDemo && !SLUG_REGEX.test(form.slug)) {
       return toast.error("Slug inválido. Use apenas letras minúsculas, números e hífens.");
     }
-    const payload = { ...form, botoesPersonalizados: (form.botoesPersonalizados || []).map((b, i) => ({ ...b, ordem: i })) };
+    const { pixChave, wifiSsid, wifiSenha, ...rest } = form;
+    const payload = { ...rest, botoesPersonalizados: joinSpecial(form.botoesPersonalizados, { pixChave, wifiSsid, wifiSenha }) };
     setSaving(true);
     try {
       if (isDemo) {
@@ -1138,6 +1151,36 @@ const NewClientView = ({ editing, onSaved, onCancel, mode = "client" }) => {
 
         <FormSection icon={Link2} title="Botões personalizados" description="Botões extras além dos padrão. Ordem e cor são refletidas na página pública.">
           <BotoesEditor botoes={form.botoesPersonalizados} onChange={(v) => setForm((f) => ({ ...f, botoesPersonalizados: v }))} />
+        </FormSection>
+
+        <FormSection icon={Wallet} title="Chave Pix e Wi-Fi" description="Botões que mostram a chave Pix e os dados do Wi-Fi para o visitante copiar.">
+          <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="pix-wifi-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>Atenção: a chave Pix e os dados do Wi-Fi preenchidos aqui serão exibidos no mini site público.</span>
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Field label="Chave Pix" id="pixChave" hint="CPF, CNPJ, e-mail, telefone ou chave aleatória. Deixe vazio para não mostrar o botão.">
+                <Input data-testid="field-pix-chave" id="pixChave" value={form.pixChave || ""} onChange={set("pixChave")} onBlur={() => setForm((f) => ({ ...f, pixChave: (f.pixChave || "").trim() }))} placeholder="Ex: 12.345.678/0001-90 ou contato@empresa.com" autoComplete="off" />
+              </Field>
+            </div>
+            <Field label="Nome da rede Wi-Fi (SSID)" id="wifiSsid">
+              <Input data-testid="field-wifi-ssid" id="wifiSsid" value={form.wifiSsid || ""} onChange={set("wifiSsid")} placeholder="Ex: Loja Central" autoComplete="off" />
+            </Field>
+            <Field label="Senha do Wi-Fi" id="wifiSenha">
+              <div className="relative">
+                <Input data-testid="field-wifi-senha" id="wifiSenha" type={showWifiSenha ? "text" : "password"} value={form.wifiSenha || ""} onChange={set("wifiSenha")} placeholder="Senha da rede" autoComplete="new-password" className="pr-10" />
+                <button type="button" data-testid="field-wifi-senha-toggle" onClick={() => setShowWifiSenha((s) => !s)} aria-label={showWifiSenha ? "Ocultar senha" : "Mostrar senha"} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-700">
+                  {showWifiSenha ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </Field>
+            {Boolean((form.wifiSsid || "").trim()) !== Boolean(form.wifiSenha) && (
+              <p className="text-xs text-amber-700 sm:col-span-2" data-testid="wifi-incomplete-hint">
+                <Wifi className="mr-1 inline h-3.5 w-3.5" /> Wi-Fi incompleto: preencha o nome da rede e a senha para o botão aparecer no mini site.
+              </p>
+            )}
+          </div>
         </FormSection>
 
         <FormSection icon={MapPin} title="Informações locais" description="Contato, endereço e funcionamento.">
