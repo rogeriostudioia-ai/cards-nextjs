@@ -42,7 +42,9 @@ import {
   Wifi,
   Wallet,
   AlertTriangle,
+  ShoppingBag,
 } from "lucide-react";
+import CatalogAdmin from "@/components/pages/CatalogAdmin";
 import { splitSpecial, joinSpecial } from "@/lib/specialButtons";
 import QRCodeLib from "qrcode";
 import { toast } from "sonner";
@@ -110,6 +112,7 @@ const NAV = [
   { id: "leads", label: "Leads", icon: Inbox, testId: "admin-nav-leads" },
   { id: "coupons", label: "Cupons", icon: Ticket, testId: "admin-nav-coupons" },
   { id: "qrcodes", label: "QR Codes", icon: QrCode, testId: "admin-nav-qrcodes" },
+  { id: "catalog", label: "Catálogo WhatsApp", icon: ShoppingBag, testId: "admin-nav-catalog" },
   { id: "demo", label: "Mini site demo", icon: MonitorSmartphone, testId: "admin-nav-demo" },
   { id: "appearance", label: "Aparência", icon: Palette, testId: "admin-nav-appearance" },
   { id: "settings", label: "Configurações", icon: Settings, testId: "admin-nav-settings" },
@@ -1640,6 +1643,7 @@ const Dashboard = ({ user, onLogout }) => {
         {active === "leads" && <LeadsView onLogout={onLogout} />}
         {active === "coupons" && <CouponsView onLogout={onLogout} />}
         {active === "qrcodes" && <QrCodesView onLogout={onLogout} />}
+        {active === "catalog" && <CatalogAdmin onLogout={onLogout} />}
         {active === "demo" && <NewClientView key="demo" mode="demo" onSaved={() => {}} onCancel={() => go("overview")} />}
         {active === "appearance" && <PlaceholderView testId="appearance-view" icon={Palette} title="Aparência" description="Temas e estilos globais dos cartões." />}
         {active === "settings" && <SecurityView onLogout={onLogout} />}
