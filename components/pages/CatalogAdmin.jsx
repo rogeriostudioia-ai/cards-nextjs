@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { catalogAdmin, parsePreco, formatBRL } from "@/lib/catalogApi";
+import { catalogAdmin, catalogAccounts, isAccountActive, parsePreco, formatBRL } from "@/lib/catalogApi";
 
 const errMsg = (e, fb) => {
   const d = e?.response?.data?.detail;
@@ -40,10 +40,136 @@ const Section = ({ title, description, action, children, testId }) => (
   </section>
 );
 
-const CatalogAdmin = ({ onLogout }) => {
+const genTempPassword = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  const arr = new Uint32Array(12);
+  window.crypto.getRandomValues(arr);
+  return Array.from(arr, (n) => chars[n % chars.length]).join("");
+};
+
+const CatalogAccountSection = ({ clienteId, onAuthError }) => {
+  const [loading, setLoading] = useState(true);
+  const [account, setAccount] = useState(null);
+  const [email, setEmail] = useState("");
+  const [temp, setTemp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [delivered, setDelivered] = useState(null); // { email, senha } exibido uma única vez
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true); setAccount(null); setDelivered(null); setEmail(""); setTemp(""); setResetOpen(false);
+    catalogAccounts.get(clienteId)
+      .then((a) => alive && setAccount(a))
+      .catch((e) => alive && onAuthError(e, "Não foi possível carregar a conta do cliente."))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [clienteId, onAuthError]);
+
+  const checkTemp = () => {
+    if (temp.length < 8) { toast.error("A senha temporária deve ter pelo menos 8 caracteres."); return false; }
+    return true;
+  };
+
+  const create = async () => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return toast.error("Informe um e-mail válido.");
+    if (!checkTemp()) return;
+    setBusy(true);
+    try {
+      const a = await catalogAccounts.create(clienteId, email.trim(), temp);
+      setAccount({ ...a, email: a?.email || email.trim() });
+      setDelivered({ email: a?.email || email.trim(), senha: temp });
+      setTemp("");
+      toast.success("Conta criada.");
+    } catch (e) {
+      onAuthError(e, "Não foi possível criar a conta.");
+    } finally { setBusy(false); }
+  };
+
+  const toggle = async (v) => {
+    setBusy(true);
+    try {
+      const a = await catalogAccounts.update(clienteId, { ativo: v });
+      setAccount((old) => ({ ...old, ...a, ativo: a?.ativo ?? v }));
+      toast.success(v ? "Conta ativada." : "Conta desativada.");
+    } catch (e) {
+      onAuthError(e, "Não foi possível atualizar a conta.");
+    } finally { setBusy(false); }
+  };
+
+  const reset = async () => {
+    if (!checkTemp()) return;
+    setBusy(true);
+    try {
+      await catalogAccounts.resetPassword(clienteId, temp);
+      setDelivered({ email: account?.email, senha: temp });
+      setTemp(""); setResetOpen(false);
+      toast.success("Senha redefinida.");
+    } catch (e) {
+      onAuthError(e, "Não foi possível redefinir a senha.");
+    } finally { setBusy(false); }
+  };
+
+  const loginUrl = typeof window !== "undefined" ? `${window.location.origin}/catalogo/login` : "/catalogo/login";
+  const active = account && isAccountActive(account);
+
+  return (
+    <Section title="Acesso do cliente" description="Conta para o cliente gerenciar o próprio catálogo." testId="catalog-account-section">
+      {loading ? (
+        <div className="flex py-4 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
+      ) : !account ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end" data-testid="catalog-account-create">
+          <div><Label>E-mail do cliente</Label><Input className="mt-1" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="catalog-account-email" /></div>
+          <div>
+            <Label>Senha temporária</Label>
+            <div className="mt-1 flex gap-2">
+              <Input autoComplete="new-password" value={temp} onChange={(e) => setTemp(e.target.value)} placeholder="mín. 8 caracteres" data-testid="catalog-account-temp" />
+              <Button type="button" variant="outline" onClick={() => setTemp(genTempPassword())} data-testid="catalog-account-gen">Gerar</Button>
+            </div>
+          </div>
+          <Button onClick={create} disabled={busy} className="rounded-full bg-indigo-600 hover:bg-indigo-700" data-testid="catalog-account-create-btn">{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Criar conta</Button>
+        </div>
+      ) : (
+        <div className="space-y-4" data-testid="catalog-account-info">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-medium text-slate-900" data-testid="catalog-account-email-view">{account.email}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`} data-testid="catalog-account-status">{active ? "Ativa" : "Desativada"}</span>
+            <div className="ml-auto flex items-center gap-2">
+              <Switch checked={!!active} disabled={busy} onCheckedChange={toggle} data-testid="catalog-account-toggle" />
+              <Button variant="outline" size="sm" className="rounded-full" onClick={() => { setResetOpen((o) => !o); setTemp(""); }} data-testid="catalog-account-reset-open">Redefinir senha</Button>
+            </div>
+          </div>
+          {resetOpen && (
+            <div className="flex flex-col gap-2 sm:flex-row" data-testid="catalog-account-reset">
+              <Input autoComplete="new-password" value={temp} onChange={(e) => setTemp(e.target.value)} placeholder="Nova senha temporária (mín. 8)" data-testid="catalog-account-reset-temp" />
+              <Button type="button" variant="outline" onClick={() => setTemp(genTempPassword())}>Gerar</Button>
+              <Button onClick={reset} disabled={busy} className="rounded-full bg-indigo-600 hover:bg-indigo-700" data-testid="catalog-account-reset-btn">Confirmar</Button>
+            </div>
+          )}
+        </div>
+      )}
+      {delivered && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="catalog-account-delivery">
+          <p className="font-semibold">Entregue estes dados ao cliente por um canal seguro (eles não serão exibidos novamente):</p>
+          <ul className="mt-2 space-y-1 font-mono text-xs">
+            <li>Login: {loginUrl}</li>
+            <li>E-mail: {delivered.email}</li>
+            <li>Senha temporária: {delivered.senha}</li>
+          </ul>
+          <p className="mt-2 text-xs">No primeiro acesso, o cliente será obrigado a criar uma nova senha.</p>
+          <Button size="sm" variant="outline" className="mt-3 rounded-full" onClick={() => setDelivered(null)} data-testid="catalog-account-delivery-close">Já entreguei, ocultar</Button>
+        </div>
+      )}
+    </Section>
+  );
+};
+
+const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug = "", mode = "admin" }) => {
+  const isClient = mode === "client";
   const [clientes, setClientes] = useState([]);
-  const [clienteId, setClienteId] = useState("");
+  const [clienteId, setClienteId] = useState(fixedClienteId);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [settings, setSettings] = useState(SETTINGS_EMPTY);
   const [savingSettings, setSavingSettings] = useState(false);
   const [categories, setCategories] = useState([]);
@@ -54,33 +180,41 @@ const CatalogAdmin = ({ onLogout }) => {
   const [toDelete, setToDelete] = useState(null); // { kind, item }
 
   const handleErr = useCallback((e, fb) => {
-    if (e?.response?.status === 401) return onLogout?.();
+    const st = e?.response?.status;
+    if (st === 401) return onLogout?.();
+    if (st === 403) return toast.error("Você não tem permissão para esta ação.");
     toast.error(errMsg(e, fb));
   }, [onLogout]);
 
   useEffect(() => {
+    if (isClient) return;
     axios.get("/api/clientes")
       .then((r) => setClientes(Array.isArray(r.data) ? r.data : []))
       .catch((e) => handleErr(e, "Não foi possível carregar os clientes."));
-  }, [handleErr]);
+  }, [handleErr, isClient]);
 
   const load = useCallback(async (id) => {
     if (!id) return;
     setLoading(true);
+    setLoadError("");
     try {
-      const [s, c, p] = await Promise.all([catalogAdmin.getSettings(id), catalogAdmin.listCategories(id), catalogAdmin.listProducts(id)]);
+      const [s, c, p] = await Promise.all([api.getSettings(id), api.listCategories(id), api.listProducts(id)]);
       setSettings({ ...SETTINGS_EMPTY, ...s });
       setCategories(c);
       setProducts(p);
     } catch (e) {
-      handleErr(e, "Não foi possível carregar o catálogo.");
+      const st = e?.response?.status;
+      // Nunca manter dados anteriores em caso de erro
+      setSettings(SETTINGS_EMPTY); setCategories([]); setProducts([]);
+      if (st === 401) return onLogout?.();
+      setLoadError(st === 403 || st === 404 ? "Catálogo não encontrado ou sem permissão de acesso." : "Não foi possível carregar o catálogo. Tente novamente.");
     } finally {
       setLoading(false);
     }
-  }, [handleErr]);
+  }, [api, onLogout]);
   useEffect(() => { load(clienteId); }, [clienteId, load]);
 
-  const cliente = clientes.find((c) => c.id === clienteId);
+  const cliente = isClient ? { slug } : clientes.find((c) => c.id === clienteId);
   const catalogId = settings.catalogId || settings.id;
   const catName = (id) => categories.find((c) => c.id === id)?.nome;
 
@@ -94,7 +228,7 @@ const CatalogAdmin = ({ onLogout }) => {
         whatsapp: (settings.whatsapp || "").trim(),
         mensagemInicial: settings.mensagemInicial,
       };
-      const data = await catalogAdmin.saveSettings(clienteId, payload);
+      const data = await api.saveSettings(clienteId, payload);
       setSettings((s) => ({ ...s, ...(data?.settings || data || {}) }));
       toast.success("Configurações do catálogo salvas.");
     } catch (e) {
@@ -110,11 +244,11 @@ const CatalogAdmin = ({ onLogout }) => {
     setSaving(true);
     try {
       const payload = { nome: d.nome.trim(), ordem: Number(d.ordem) || 0, ativo: !!d.ativo };
-      if (catForm.editing) await catalogAdmin.updateCategory(catForm.editing.id, payload);
-      else await catalogAdmin.createCategory({ ...payload, clienteId, ...(catalogId ? { catalogId } : {}) });
+      if (catForm.editing) await api.updateCategory(catForm.editing.id, payload);
+      else await api.createCategory({ ...payload, clienteId, ...(catalogId ? { catalogId } : {}) });
       toast.success(catForm.editing ? "Categoria atualizada." : "Categoria criada.");
       setCatForm(null);
-      setCategories(await catalogAdmin.listCategories(clienteId));
+      setCategories(await api.listCategories(clienteId));
     } catch (e) {
       handleErr(e, "Não foi possível salvar a categoria.");
     } finally {
@@ -139,11 +273,11 @@ const CatalogAdmin = ({ onLogout }) => {
         ordem: Number(d.ordem) || 0,
         ativo: !!d.ativo,
       };
-      if (prodForm.editing) await catalogAdmin.updateProduct(prodForm.editing.id, payload);
-      else await catalogAdmin.createProduct({ ...payload, clienteId, ...(catalogId ? { catalogId } : {}) });
+      if (prodForm.editing) await api.updateProduct(prodForm.editing.id, payload);
+      else await api.createProduct({ ...payload, clienteId, ...(catalogId ? { catalogId } : {}) });
       toast.success(prodForm.editing ? "Produto atualizado." : "Produto criado.");
       setProdForm(null);
-      setProducts(await catalogAdmin.listProducts(clienteId));
+      setProducts(await api.listProducts(clienteId));
     } catch (e) {
       handleErr(e, "Não foi possível salvar o produto.");
     } finally {
@@ -155,10 +289,10 @@ const CatalogAdmin = ({ onLogout }) => {
     const { kind, item } = toDelete;
     try {
       if (kind === "cat") {
-        await catalogAdmin.deleteCategory(item.id);
+        await api.deleteCategory(item.id);
         setCategories((l) => l.filter((x) => x.id !== item.id));
       } else {
-        await catalogAdmin.deleteProduct(item.id);
+        await api.deleteProduct(item.id);
         setProducts((l) => l.filter((x) => x.id !== item.id));
       }
       toast.success("Removido.");
@@ -176,10 +310,11 @@ const CatalogAdmin = ({ onLogout }) => {
   return (
     <div data-testid="catalog-admin-view">
       <div className="mb-8">
-        <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900">Catálogo WhatsApp</h1>
+        <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900">{isClient ? "Meu catálogo" : "Catálogo WhatsApp"}</h1>
         <p className="mt-1 text-sm text-slate-500">Produtos com carrinho simples; o pedido é finalizado pelo WhatsApp da loja.</p>
       </div>
 
+      {!isClient && (
       <div className="mb-6 max-w-md">
         <Label>Cliente</Label>
         <Select value={clienteId} onValueChange={setClienteId}>
@@ -189,15 +324,19 @@ const CatalogAdmin = ({ onLogout }) => {
           </SelectContent>
         </Select>
       </div>
+      )}
 
       {!clienteId ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400" data-testid="catalog-no-client">
-          <Store className="mx-auto mb-2 h-6 w-6" /> Selecione um cliente para configurar o catálogo.
+          <Store className="mx-auto mb-2 h-6 w-6" /> {isClient ? "Conta sem catálogo vinculado. Fale com o administrador." : "Selecione um cliente para configurar o catálogo."}
         </div>
       ) : loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
+      ) : loadError ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-500" data-testid="catalog-load-error">{loadError}</div>
       ) : (
         <>
+          {!isClient && <CatalogAccountSection clienteId={clienteId} onAuthError={handleErr} />}
           <Section title="Configurações" description="Ative o catálogo e defina os dados da loja." testId="catalog-settings"
             action={publicUrl && (
               <a href={`/catalogo/${cliente.slug}`} target="_blank" rel="noreferrer" data-testid="catalog-public-link" className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:underline">
