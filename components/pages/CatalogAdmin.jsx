@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { catalogAdmin, catalogAccounts, isAccountActive, parsePreco, formatBRL } from "@/lib/catalogApi";
+import { catalogAdmin, catalogAccounts, isAccountActive, isReservedCatalogSlug, RESERVED_CATALOG_SLUGS, parsePreco, formatBRL } from "@/lib/catalogApi";
 
 const errMsg = (e, fb) => {
   const d = e?.response?.data?.detail;
@@ -215,10 +215,12 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
   useEffect(() => { load(clienteId); }, [clienteId, load]);
 
   const cliente = isClient ? { slug } : clientes.find((c) => c.id === clienteId);
+  const slugReserved = isReservedCatalogSlug(cliente?.slug);
   const catalogId = settings.catalogId || settings.id;
   const catName = (id) => categories.find((c) => c.id === id)?.nome;
 
   const saveSettings = async () => {
+    if (slugReserved && settings.ativo) return toast.error(`O endereço "${cliente?.slug}" é reservado pelo sistema. O catálogo não pode ser ativado com este slug.`);
     setSavingSettings(true);
     try {
       const payload = {
@@ -305,7 +307,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
   const setS = (k) => (e) => setSettings((s) => ({ ...s, [k]: e.target.value }));
   const setC = (k, v) => setCatForm((f) => ({ ...f, data: { ...f.data, [k]: v } }));
   const setP = (k, v) => setProdForm((f) => ({ ...f, data: { ...f.data, [k]: v } }));
-  const publicUrl = cliente?.slug && typeof window !== "undefined" ? `${window.location.origin}/catalogo/${cliente.slug}` : "";
+  const publicUrl = cliente?.slug && !slugReserved && typeof window !== "undefined" ? `${window.location.origin}/catalogo/${cliente.slug}` : "";
 
   return (
     <div data-testid="catalog-admin-view">
@@ -320,7 +322,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
         <Select value={clienteId} onValueChange={setClienteId}>
           <SelectTrigger className="mt-1 bg-white" data-testid="catalog-client-select"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
           <SelectContent>
-            {clientes.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>))}
+            {clientes.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nome}{isReservedCatalogSlug(c.slug) ? " — slug reservado" : ""}</SelectItem>))}
           </SelectContent>
         </Select>
       </div>
@@ -337,6 +339,15 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
       ) : (
         <>
           {!isClient && <CatalogAccountSection clienteId={clienteId} onAuthError={handleErr} />}
+          {slugReserved && (
+            <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" data-testid="catalog-slug-conflict">
+              <p className="font-semibold">Conflito de endereço: o slug &quot;{cliente?.slug}&quot; é reservado pelo sistema.</p>
+              <p className="mt-1">
+                Os endereços /catalogo/{RESERVED_CATALOG_SLUGS.join(", /catalogo/")} são usados pelo acesso do cliente, então o catálogo público deste cliente não pode ser ativado.
+                {isClient ? " Fale com o administrador." : " Altere o slug do cliente na aba Clientes para liberar o catálogo. O mini site não é afetado."}
+              </p>
+            </div>
+          )}
           <Section title="Configurações" description="Ative o catálogo e defina os dados da loja." testId="catalog-settings"
             action={publicUrl && (
               <a href={`/catalogo/${cliente.slug}`} target="_blank" rel="noreferrer" data-testid="catalog-public-link" className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:underline">
@@ -345,7 +356,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
             )}>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div className="flex items-center gap-3 sm:col-span-2">
-                <Switch checked={!!settings.ativo} onCheckedChange={(v) => setSettings((s) => ({ ...s, ativo: v }))} data-testid="catalog-settings-ativo" id="catAtivo" />
+                <Switch checked={!!settings.ativo} disabled={slugReserved && !settings.ativo} onCheckedChange={(v) => setSettings((s) => ({ ...s, ativo: v }))} data-testid="catalog-settings-ativo" id="catAtivo" />
                 <Label htmlFor="catAtivo">{settings.ativo ? "Catálogo ativo" : "Catálogo desativado"}</Label>
               </div>
               <div>
