@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Loader2, Plus, Pencil, Trash2, ExternalLink, ImageOff, Store, Upload, X } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, ExternalLink, ImageOff, Store, Upload, X, ChevronLeft, ChevronRight, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { catalogAdmin, catalogAccounts, isAccountActive, isReservedCatalogSlug, RESERVED_CATALOG_SLUGS, PRODUCT_IMG_EXT, PRODUCT_IMG_MAX_MB, parsePreco, formatBRL } from "@/lib/catalogApi";
+import { catalogAdmin, catalogAccounts, isAccountActive, isReservedCatalogSlug, RESERVED_CATALOG_SLUGS, PRODUCT_IMG_EXT, PRODUCT_IMG_MAX_MB, PRODUCT_IMG_MAX, productImages, parsePreco, formatBRL } from "@/lib/catalogApi";
 
 const errMsg = (e, fb) => {
   const d = e?.response?.data?.detail;
@@ -25,7 +25,7 @@ const errMsg = (e, fb) => {
 
 const SETTINGS_EMPTY = { ativo: false, titulo: "", descricao: "", whatsapp: "", mensagemInicial: "" };
 const CAT_EMPTY = { nome: "", ordem: 0, ativo: true };
-const PROD_EMPTY = { nome: "", descricao: "", preco: "", imagemUrl: "", sku: "", categoriaId: "none", ordem: 0, ativo: true };
+const PROD_EMPTY = { nome: "", descricao: "", preco: "", imagemUrl: "", imageUrls: [], sku: "", categoriaId: "none", ordem: 0, ativo: true };
 
 const Section = ({ title, description, action, children, testId }) => (
   <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6" data-testid={testId}>
@@ -179,9 +179,19 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
   const [saving, setSaving] = useState(false);
   const [toDelete, setToDelete] = useState(null); // { kind, item }
   const [uploadingImg, setUploadingImg] = useState(false);
-  const [imgBroken, setImgBroken] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
   const imgInputRef = useRef(null);
-  useEffect(() => { if (!prodForm) setImgBroken(false); }, [prodForm]);
+  useEffect(() => { if (!prodForm) setLinkDraft(""); }, [prodForm]);
+  const setImgs = (fn) => setProdForm((f) => (f ? { ...f, data: { ...f.data, imageUrls: fn(f.data.imageUrls || []) } } : f));
+  const moveImg = (i, d) => setImgs((l) => { const n = [...l]; const j = i + d; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const makeFirst = (i) => setImgs((l) => [l[i], ...l.filter((_, k) => k !== i)]);
+  const removeImg = (i) => setImgs((l) => l.filter((_, k) => k !== i));
+  const addLink = () => {
+    const u = linkDraft.trim();
+    if (!/^https?:\/\//i.test(u)) return toast.error("Informe um link de imagem começando com http:// ou https://");
+    if ((prodForm?.data.imageUrls || []).length >= PRODUCT_IMG_MAX) return toast.error(`Limite de ${PRODUCT_IMG_MAX} fotos por produto.`);
+    setImgs((l) => [...l, u]); setLinkDraft("");
+  };
 
   const handleErr = useCallback((e, fb) => {
     const st = e?.response?.status;
@@ -263,31 +273,33 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
   };
 
   const handleProductImage = async (e) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files || []);
     e.target.value = "";
-    if (!file) return;
-    const ext = (file.name.split(".").pop() || "").toLowerCase();
-    if (!PRODUCT_IMG_EXT.includes(ext)) return toast.error("Formato não suportado. Use JPG, JPEG, PNG ou WEBP.");
-    if (file.size > PRODUCT_IMG_MAX_MB * 1024 * 1024) return toast.error(`Imagem muito grande. Limite de ${PRODUCT_IMG_MAX_MB} MB.`);
+    if (!files.length) return;
+    const current = (prodForm?.data.imageUrls || []).length;
+    const room = PRODUCT_IMG_MAX - current;
+    if (room <= 0) return toast.error(`Limite de ${PRODUCT_IMG_MAX} fotos por produto.`);
+    if (files.length > room) toast.error(`Só cabem mais ${room} foto(s). As demais foram ignoradas.`);
     setUploadingImg(true);
-    try {
-      const url = await api.uploadImage(file);
-      setImgBroken(false);
-      setProdForm((f) => (f ? { ...f, data: { ...f.data, imagemUrl: url } } : f));
-      toast.success("Foto enviada. Clique em Salvar para gravar no produto.");
-    } catch (err) {
-      const st = err?.response?.status;
-      // Falha de upload nunca encerra a sessão do cliente
-      if (st === 401 || st === 403) {
-        toast.error(isClient
-          ? "O envio de fotos ainda não está liberado para a sua conta. Use o link da imagem ou fale com o administrador."
-          : "Sessão sem permissão para enviar arquivos. Entre novamente.");
-      } else {
-        toast.error(errMsg(err, "Não foi possível enviar a foto. Tente novamente."));
+    let ok = 0;
+    for (const file of files.slice(0, room)) {
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      if (!PRODUCT_IMG_EXT.includes(ext)) { toast.error(`${file.name}: formato não suportado. Use JPG, JPEG, PNG ou WEBP.`); continue; }
+      if (file.size > PRODUCT_IMG_MAX_MB * 1024 * 1024) { toast.error(`${file.name}: maior que ${PRODUCT_IMG_MAX_MB} MB.`); continue; }
+      try {
+        const url = await api.uploadImage(file, clienteId);
+        setImgs((l) => (l.length < PRODUCT_IMG_MAX ? [...l, url] : l));
+        ok += 1;
+      } catch (err) {
+        const st = err?.response?.status;
+        // Falha de upload nunca encerra a sessão
+        toast.error(st === 401 || st === 403
+          ? "Sem permissão para enviar fotos neste catálogo. Entre novamente ou fale com o administrador."
+          : `${file.name}: ${errMsg(err, "não foi possível enviar a foto.")}`);
       }
-    } finally {
-      setUploadingImg(false);
     }
+    setUploadingImg(false);
+    if (ok) toast.success(ok === 1 ? "Foto enviada. Clique em Salvar para gravar." : `${ok} fotos enviadas. Clique em Salvar para gravar.`);
   };
 
   const saveProduct = async () => {
@@ -301,7 +313,8 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
         nome: d.nome.trim(),
         descricao: d.descricao || "",
         preco,
-        imagemUrl: (d.imagemUrl || "").trim(),
+        imageUrls: (d.imageUrls || []).slice(0, PRODUCT_IMG_MAX),
+        imagemUrl: (d.imageUrls || [])[0] || "",
         sku: (d.sku || "").trim(),
         categoriaId: d.categoriaId === "none" ? null : d.categoriaId,
         ordem: Number(d.ordem) || 0,
@@ -450,7 +463,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
                   return (
                     <div key={p.id} className="flex items-center gap-4 rounded-xl border border-slate-200 p-3" data-testid={`catalog-prod-row-${p.id}`}>
                       <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
-                        {p.imagemUrl ? <img src={p.imagemUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><ImageOff className="h-5 w-5" /></div>}
+                        {productImages(p)[0] ? <img src={productImages(p)[0]} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><ImageOff className="h-5 w-5" /></div>}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -464,7 +477,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
                       </div>
                       <div className="flex gap-1">
                         <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Editar produto" data-testid={`catalog-prod-edit-${p.id}`}
-                          onClick={() => setProdForm({ editing: p, data: { ...PROD_EMPTY, ...p, nome: p.nome || "", descricao: p.descricao || "", imagemUrl: p.imagemUrl || "", sku: p.sku || "", preco: preco !== null ? String(preco).replace(".", ",") : "", categoriaId: p.categoriaId || "none", ativo: p.ativo !== false } })}>
+                          onClick={() => setProdForm({ editing: p, data: { ...PROD_EMPTY, ...p, nome: p.nome || "", descricao: p.descricao || "", imagemUrl: p.imagemUrl || "", imageUrls: productImages(p), sku: p.sku || "", preco: preco !== null ? String(preco).replace(".", ",") : "", categoriaId: p.categoriaId || "none", ativo: p.ativo !== false } })}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="ghost" className="h-9 w-9 text-red-500 hover:bg-red-50" aria-label="Excluir produto" data-testid={`catalog-prod-delete-${p.id}`} onClick={() => setToDelete({ kind: "prod", item: p })}><Trash2 className="h-4 w-4" /></Button>
@@ -514,32 +527,38 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
                 <div><Label>Preço (R$)</Label><Input className="mt-1" inputMode="decimal" placeholder="Ex: 29,90" value={prodForm.data.preco} onChange={(e) => setP("preco", e.target.value)} data-testid="catalog-prod-preco" /></div>
                 <div><Label>SKU</Label><Input className="mt-1" value={prodForm.data.sku} onChange={(e) => setP("sku", e.target.value)} data-testid="catalog-prod-sku" /></div>
               </div>
-              <div>
-                <Label>Foto do produto</Label>
-                <div className="mt-1 flex items-center gap-3">
-                  <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50" data-testid="catalog-prod-img-preview">
-                    {prodForm.data.imagemUrl && !imgBroken ? (
-                      <img src={prodForm.data.imagemUrl} alt="Prévia" className="h-full w-full object-cover" onError={() => setImgBroken(true)} />
-                    ) : (
-                      <ImageOff className="h-6 w-6 text-slate-300" />
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <input ref={imgInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="hidden" onChange={handleProductImage} data-testid="catalog-prod-img-input" />
-                    <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={uploadingImg} onClick={() => imgInputRef.current?.click()} data-testid="catalog-prod-img-upload">
-                      {uploadingImg ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
-                      {uploadingImg ? "Enviando..." : prodForm.data.imagemUrl ? "Substituir foto" : "Enviar foto"}
-                    </Button>
-                    {prodForm.data.imagemUrl && (
-                      <Button type="button" variant="ghost" size="sm" className="rounded-full text-red-500 hover:bg-red-50" disabled={uploadingImg} onClick={() => { setP("imagemUrl", ""); setImgBroken(false); }} data-testid="catalog-prod-img-remove">
-                        <X className="mr-1 h-4 w-4" /> Remover
-                      </Button>
-                    )}
-                  </div>
+              <div data-testid="catalog-prod-gallery">
+                <div className="flex items-center justify-between">
+                  <Label>Fotos do produto</Label>
+                  <span className="text-xs text-slate-400" data-testid="catalog-prod-img-count">{(prodForm.data.imageUrls || []).length}/{PRODUCT_IMG_MAX}</span>
                 </div>
-                {imgBroken && prodForm.data.imagemUrl && <p className="mt-1 text-xs text-amber-700">Não foi possível carregar esta imagem. Verifique o link ou envie outra foto.</p>}
-                <Label className="mt-3 block text-xs font-normal text-slate-500">Ou cole o link da imagem</Label>
-                <Input className="mt-1" placeholder="https://..." value={prodForm.data.imagemUrl} onChange={(e) => { setImgBroken(false); setP("imagemUrl", e.target.value); }} data-testid="catalog-prod-imagem" />
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {(prodForm.data.imageUrls || []).map((u, i) => (
+                    <div key={`${u}-${i}`} className={`relative overflow-hidden rounded-lg border bg-slate-50 ${i === 0 ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200"}`} data-testid={`catalog-prod-thumb-${i}`}>
+                      <img src={u} alt={`Foto ${i + 1}`} className="aspect-square w-full object-cover" onError={(e) => { e.currentTarget.style.opacity = "0.2"; }} />
+                      {i === 0 && <span className="absolute left-1 top-1 rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Principal</span>}
+                      <button type="button" onClick={() => removeImg(i)} aria-label="Remover foto" data-testid={`catalog-prod-thumb-remove-${i}`} className="absolute right-1 top-1 rounded-full bg-white/90 p-0.5 text-red-600 shadow hover:bg-white"><X className="h-3.5 w-3.5" /></button>
+                      <div className="absolute inset-x-0 bottom-0 flex justify-between bg-white/85 px-0.5 py-0.5">
+                        <button type="button" disabled={i === 0} onClick={() => moveImg(i, -1)} aria-label="Mover para a esquerda" data-testid={`catalog-prod-thumb-left-${i}`} className="rounded p-0.5 text-slate-600 disabled:opacity-30"><ChevronLeft className="h-3.5 w-3.5" /></button>
+                        {i !== 0 && <button type="button" onClick={() => makeFirst(i)} aria-label="Definir como principal" title="Definir como principal" data-testid={`catalog-prod-thumb-first-${i}`} className="rounded p-0.5 text-amber-500"><Star className="h-3.5 w-3.5" /></button>}
+                        <button type="button" disabled={i === (prodForm.data.imageUrls || []).length - 1} onClick={() => moveImg(i, 1)} aria-label="Mover para a direita" data-testid={`catalog-prod-thumb-right-${i}`} className="rounded p-0.5 text-slate-600 disabled:opacity-30"><ChevronRight className="h-3.5 w-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+                  {(prodForm.data.imageUrls || []).length < PRODUCT_IMG_MAX && (
+                    <button type="button" disabled={uploadingImg} onClick={() => imgInputRef.current?.click()} data-testid="catalog-prod-img-upload"
+                      className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-50">
+                      {uploadingImg ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                      {uploadingImg ? "Enviando..." : "Enviar foto"}
+                    </button>
+                  )}
+                </div>
+                <input ref={imgInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="hidden" onChange={handleProductImage} data-testid="catalog-prod-img-input" />
+                <p className="mt-1 text-xs text-slate-500">JPG, PNG ou WEBP até {PRODUCT_IMG_MAX_MB} MB. A primeira foto é a principal.</p>
+                <div className="mt-2 flex gap-2">
+                  <Input placeholder="Ou cole o link de uma imagem (https://...)" value={linkDraft} onChange={(e) => setLinkDraft(e.target.value)} data-testid="catalog-prod-imagem" />
+                  <Button type="button" variant="outline" onClick={addLink} data-testid="catalog-prod-imagem-add">Adicionar</Button>
+                </div>
               </div>
               <div>
                 <Label>Categoria</Label>
