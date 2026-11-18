@@ -20,6 +20,7 @@ import {
   Check,
   Wifi,
   ChevronDown,
+  ShoppingBag,
 } from "lucide-react";
 import { isSpecialBotao, splitSpecial } from "@/lib/specialButtons";
 import { isDark, readableOn, withAlpha, shade, blendOver } from "@/lib/themeContrast";
@@ -331,11 +332,14 @@ const CardTemplate = ({ data }) => {
         </div>
 
         {/* Botões */}
-        {(buttons.length > 0 || customButtons.length > 0 || pixChave || wifiOk) && (
+        {(buttons.length > 0 || customButtons.length > 0 || pixChave || wifiOk || c.catalogUrl) && (
           <div className="mt-6 space-y-3 px-6">
             {buttons.map((b) => (
               <ActionButton key={b.testId} {...b} btn={std.bg} btnFg={std.fg} btnHover={std.hover} />
             ))}
+            {c.catalogUrl && (
+              <ActionButton icon={ShoppingBag} label="Ver catálogo" href={c.catalogUrl} testId="card-catalog-button" btn={std.bg} btnFg={std.fg} btnHover={std.hover} />
+            )}
             {customButtons.map((b, i) => {
               const t = btnTheme(b.cor || corBotoes);
               const kind = customKind(b);

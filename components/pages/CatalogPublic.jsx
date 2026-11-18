@@ -2,7 +2,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, ShoppingCart, Plus, Minus, Trash2, Store, MessageCircle, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchPublicCatalog, parsePreco, formatBRL, cleanWhatsapp, buildOrderMessage, buildWhatsappLink } from "@/lib/catalogApi";
+import { readableOn, withAlpha } from "@/lib/themeContrast";
+
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const safeHex = (v, fb) => (HEX.test(String(v || "").trim()) ? String(v).trim() : fb);
+import { fetchPublicCatalog, fetchPublicCliente, parsePreco, formatBRL, cleanWhatsapp, buildOrderMessage, buildWhatsappLink } from "@/lib/catalogApi";
 
 const SEM_CATEGORIA = "__sem__";
 
@@ -14,11 +18,24 @@ const CatalogPublic = ({ slug }) => {
 
   useEffect(() => {
     let alive = true;
-    fetchPublicCatalog(slug).then((r) => alive && setState(r));
+    Promise.all([fetchPublicCatalog(slug), fetchPublicCliente(slug)]).then(([r, cli]) => alive && setState({ ...r, cliente: cli }));
     return () => { alive = false; };
   }, [slug]);
 
-  const { catalog = {}, categories = [], products = [] } = state;
+  const { catalog = {}, categories = [], products = [], cliente = null } = state;
+  const [logoOk, setLogoOk] = useState(true);
+  // Cores do mini site do cliente (mesmos campos do cartão: corFundo, corBotoes, profileUrl)
+  const bg = safeHex(cliente?.corFundo, "#F8FAFC");
+  const fg = readableOn(bg);
+  const fgMuted = withAlpha(fg, 0.72);
+  const line = withAlpha(fg, 0.14);
+  const accent = safeHex(cliente?.corBotoes, "#059669");
+  const accentFg = readableOn(accent);
+  const accentStyle = { backgroundColor: accent, color: accentFg };
+  const storeName = (cliente?.nome || "").trim();
+  const titulo = (catalog.titulo || "").trim();
+  const heading = storeName || titulo || "Catálogo";
+  const logo = cliente?.profileUrl || "";
   const catIds = useMemo(() => new Set(categories.map((c) => c.id)), [categories]);
   const hasUncategorized = products.some((p) => !p.categoriaId || !catIds.has(p.categoriaId));
   const visible = products.filter((p) =>
@@ -55,17 +72,28 @@ const CatalogPublic = ({ slug }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-28" data-testid="catalog-page">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen pb-28" style={{ backgroundColor: bg }} data-testid="catalog-page">
+      <header className="border-b" style={{ borderColor: line }}>
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900" data-testid="catalog-title">{catalog.titulo || "Catálogo"}</h1>
-          {catalog.descricao && <p className="mt-1 whitespace-pre-line text-sm text-slate-500" data-testid="catalog-description">{catalog.descricao}</p>}
+          <div className="flex items-center gap-4">
+            {logo && logoOk && (
+              <img src={logo} alt={heading} onError={() => setLogoOk(false)} className="h-16 w-16 flex-shrink-0 rounded-2xl object-cover" style={{ boxShadow: `0 0 0 1px ${line}` }} data-testid="catalog-logo" />
+            )}
+            <div className="min-w-0">
+              <h1 className="break-words font-heading text-2xl font-bold tracking-tight" style={{ color: fg }} data-testid="catalog-store-name">{heading}</h1>
+              {storeName && titulo && titulo !== storeName && (
+                <p className="mt-0.5 break-words text-base font-semibold" style={{ color: fgMuted }} data-testid="catalog-title">{titulo}</p>
+              )}
+            </div>
+          </div>
+          {catalog.descricao && <p className="mt-3 whitespace-pre-line text-sm" style={{ color: fgMuted }} data-testid="catalog-description">{catalog.descricao}</p>}
         </div>
         {(categories.length > 0 || hasUncategorized) && products.length > 0 && (
           <div className="mx-auto flex max-w-5xl gap-2 overflow-x-auto px-4 pb-4 sm:px-6" data-testid="catalog-categories">
             {[{ id: "all", nome: "Todos" }, ...categories, ...(hasUncategorized && categories.length > 0 ? [{ id: SEM_CATEGORIA, nome: "Outros" }] : [])].map((c) => (
               <button key={c.id} type="button" onClick={() => setCat(c.id)} data-testid={`catalog-cat-${c.id}`}
-                className={`flex-shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium transition ${cat === c.id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>
+                className="flex-shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium transition hover:opacity-90"
+                style={cat === c.id ? { ...accentStyle, borderColor: accent } : { backgroundColor: withAlpha(fg, 0.06), color: fg, borderColor: line }}>
                 {c.nome}
               </button>
             ))}
@@ -95,7 +123,7 @@ const CatalogPublic = ({ slug }) => {
                     {p.descricao && <p className="mt-1 line-clamp-3 whitespace-pre-line text-sm text-slate-500">{p.descricao}</p>}
                     <div className="mt-auto flex items-center justify-between gap-3 pt-4">
                       <span className="font-heading text-lg font-bold text-slate-900" data-testid={`catalog-price-${p.id}`}>{preco !== null ? formatBRL(preco) : <span className="text-sm font-medium text-slate-400">Preço a consultar</span>}</span>
-                      <Button size="sm" onClick={() => add(p)} data-testid={`catalog-add-${p.id}`} className="rounded-full bg-emerald-600 hover:bg-emerald-700">
+                      <Button size="sm" onClick={() => add(p)} data-testid={`catalog-add-${p.id}`} style={accentStyle} className="rounded-full hover:opacity-90">
                         <Plus className="mr-1 h-4 w-4" /> {inCart ? `No carrinho (${inCart.qty})` : "Adicionar ao carrinho"}
                       </Button>
                     </div>
@@ -149,7 +177,7 @@ const CatalogPublic = ({ slug }) => {
                 <span className="font-heading text-xl font-bold text-slate-900" data-testid="catalog-total">{formatBRL(total)}</span>
               </div>
               <p className="text-xs text-slate-400">Pagamento e entrega serão combinados pelo WhatsApp.</p>
-              <Button onClick={finish} disabled={!whats || cart.length === 0} data-testid="catalog-finish" className="h-12 w-full rounded-full bg-emerald-600 text-base hover:bg-emerald-700">
+              <Button onClick={finish} disabled={!whats || cart.length === 0} data-testid="catalog-finish" style={accentStyle} className="h-12 w-full rounded-full text-base hover:opacity-90">
                 <MessageCircle className="mr-2 h-5 w-5" /> Finalizar pelo WhatsApp
               </Button>
               {!whats && <p className="text-center text-xs text-amber-700" data-testid="catalog-no-whatsapp">O WhatsApp da loja ainda não foi configurado. Entre em contato com a loja.</p>}

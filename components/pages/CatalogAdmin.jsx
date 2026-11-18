@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Loader2, Plus, Pencil, Trash2, ExternalLink, ImageOff, Store } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, ExternalLink, ImageOff, Store, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { catalogAdmin, catalogAccounts, isAccountActive, isReservedCatalogSlug, RESERVED_CATALOG_SLUGS, parsePreco, formatBRL } from "@/lib/catalogApi";
+import { catalogAdmin, catalogAccounts, isAccountActive, isReservedCatalogSlug, RESERVED_CATALOG_SLUGS, PRODUCT_IMG_EXT, PRODUCT_IMG_MAX_MB, parsePreco, formatBRL } from "@/lib/catalogApi";
 
 const errMsg = (e, fb) => {
   const d = e?.response?.data?.detail;
@@ -178,6 +178,10 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
   const [prodForm, setProdForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toDelete, setToDelete] = useState(null); // { kind, item }
+  const [uploadingImg, setUploadingImg] = useState(false);
+  const [imgBroken, setImgBroken] = useState(false);
+  const imgInputRef = useRef(null);
+  useEffect(() => { if (!prodForm) setImgBroken(false); }, [prodForm]);
 
   const handleErr = useCallback((e, fb) => {
     const st = e?.response?.status;
@@ -255,6 +259,34 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
       handleErr(e, "Não foi possível salvar a categoria.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleProductImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (!PRODUCT_IMG_EXT.includes(ext)) return toast.error("Formato não suportado. Use JPG, JPEG, PNG ou WEBP.");
+    if (file.size > PRODUCT_IMG_MAX_MB * 1024 * 1024) return toast.error(`Imagem muito grande. Limite de ${PRODUCT_IMG_MAX_MB} MB.`);
+    setUploadingImg(true);
+    try {
+      const url = await api.uploadImage(file);
+      setImgBroken(false);
+      setProdForm((f) => (f ? { ...f, data: { ...f.data, imagemUrl: url } } : f));
+      toast.success("Foto enviada. Clique em Salvar para gravar no produto.");
+    } catch (err) {
+      const st = err?.response?.status;
+      // Falha de upload nunca encerra a sessão do cliente
+      if (st === 401 || st === 403) {
+        toast.error(isClient
+          ? "O envio de fotos ainda não está liberado para a sua conta. Use o link da imagem ou fale com o administrador."
+          : "Sessão sem permissão para enviar arquivos. Entre novamente.");
+      } else {
+        toast.error(errMsg(err, "Não foi possível enviar a foto. Tente novamente."));
+      }
+    } finally {
+      setUploadingImg(false);
     }
   };
 
@@ -482,7 +514,33 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
                 <div><Label>Preço (R$)</Label><Input className="mt-1" inputMode="decimal" placeholder="Ex: 29,90" value={prodForm.data.preco} onChange={(e) => setP("preco", e.target.value)} data-testid="catalog-prod-preco" /></div>
                 <div><Label>SKU</Label><Input className="mt-1" value={prodForm.data.sku} onChange={(e) => setP("sku", e.target.value)} data-testid="catalog-prod-sku" /></div>
               </div>
-              <div><Label>URL da imagem</Label><Input className="mt-1" placeholder="https://..." value={prodForm.data.imagemUrl} onChange={(e) => setP("imagemUrl", e.target.value)} data-testid="catalog-prod-imagem" /></div>
+              <div>
+                <Label>Foto do produto</Label>
+                <div className="mt-1 flex items-center gap-3">
+                  <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50" data-testid="catalog-prod-img-preview">
+                    {prodForm.data.imagemUrl && !imgBroken ? (
+                      <img src={prodForm.data.imagemUrl} alt="Prévia" className="h-full w-full object-cover" onError={() => setImgBroken(true)} />
+                    ) : (
+                      <ImageOff className="h-6 w-6 text-slate-300" />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <input ref={imgInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="hidden" onChange={handleProductImage} data-testid="catalog-prod-img-input" />
+                    <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={uploadingImg} onClick={() => imgInputRef.current?.click()} data-testid="catalog-prod-img-upload">
+                      {uploadingImg ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
+                      {uploadingImg ? "Enviando..." : prodForm.data.imagemUrl ? "Substituir foto" : "Enviar foto"}
+                    </Button>
+                    {prodForm.data.imagemUrl && (
+                      <Button type="button" variant="ghost" size="sm" className="rounded-full text-red-500 hover:bg-red-50" disabled={uploadingImg} onClick={() => { setP("imagemUrl", ""); setImgBroken(false); }} data-testid="catalog-prod-img-remove">
+                        <X className="mr-1 h-4 w-4" /> Remover
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {imgBroken && prodForm.data.imagemUrl && <p className="mt-1 text-xs text-amber-700">Não foi possível carregar esta imagem. Verifique o link ou envie outra foto.</p>}
+                <Label className="mt-3 block text-xs font-normal text-slate-500">Ou cole o link da imagem</Label>
+                <Input className="mt-1" placeholder="https://..." value={prodForm.data.imagemUrl} onChange={(e) => { setImgBroken(false); setP("imagemUrl", e.target.value); }} data-testid="catalog-prod-imagem" />
+              </div>
               <div>
                 <Label>Categoria</Label>
                 <Select value={prodForm.data.categoriaId} onValueChange={(v) => setP("categoriaId", v)}>
@@ -501,7 +559,7 @@ const CatalogAdmin = ({ onLogout, api = catalogAdmin, fixedClienteId = "", slug 
           )}
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setProdForm(null)}>Cancelar</Button>
-            <Button onClick={saveProduct} disabled={saving} data-testid="catalog-prod-save" className="rounded-full bg-indigo-600 hover:bg-indigo-700">{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Salvar</Button>
+            <Button onClick={saveProduct} disabled={saving || uploadingImg} data-testid="catalog-prod-save" className="rounded-full bg-indigo-600 hover:bg-indigo-700">{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
